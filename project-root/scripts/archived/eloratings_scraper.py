@@ -3,7 +3,7 @@ import requests
 from pathlib import Path
 
 BASE = "https://www.eloratings.net"
-YEARS = range(2000, 2026)
+YEARS = range(2000, 2027)
 
 # where to save the yearly .tsv files
 OUT_DIR = Path(__file__).resolve().parent.parent / "data" / "tsv"
