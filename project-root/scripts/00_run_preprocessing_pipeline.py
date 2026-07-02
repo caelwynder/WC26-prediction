@@ -17,6 +17,11 @@ SCRIPT_DIR = BASE_DIR / "scripts" / "archived"
 OUT_FILE = DATA_DIR / "00_merged_dataset.csv"
 RAW_FILE = RAW_DIR / "00_merged_dataset_raw.csv"
 
+# Hard cap: no matches after this date enter the dataset. The model is
+# trained on everything up to the end of the 2026 World Cup group stage
+# and used to predict every match after it.
+CUTOFF_DATE = "2026-06-27"
+
 
 # Helpers
 
@@ -57,6 +62,10 @@ def main():
     github_script = find_script("00_github_scraper")
     run_py(github_script)
 
+    # Step 2b: Penalty shootout data (shootouts, penalty goals, WC kick-by-kick)
+    penalty_script = find_script("00_penalty_scraper")
+    run_py(penalty_script)
+
     # Step 3: EloRatings workflow (download -> merge -> merge dates -> namechange)
     eloratings_script = find_script("00_eloratings_scraper")
     run_py(eloratings_script)
@@ -85,7 +94,10 @@ def cleanup_outputs(raw_dir: Path, processed_dir: Path):
         "00_merged_dataset_unmatched_results.csv",
         "former_names.csv",
         "goalscorers.csv",
-        "shootouts.csv"
+        "shootouts.csv",
+        "00_shootouts_final.csv",
+        "00_penalty_goals_final.csv",
+        "00_wc_penalty_kicks.csv"
     }
 
     print("\n" + "=" * 70)
@@ -127,5 +139,14 @@ if __name__ == "__main__":
             print(f"Column '{column_to_remove[column]}' removed successfully.")
         else:
             print("Column not found in the CSV file.")
+
+    # Enforce the cutoff: drop anything played after CUTOFF_DATE
+    dates = pd.to_datetime(df["date"], errors="coerce")
+    after_cutoff = dates > pd.Timestamp(CUTOFF_DATE)
+    if after_cutoff.any():
+        df = df[~after_cutoff]
+        df.to_csv(OUT_FILE, index=False)
+    print(f"Cutoff {CUTOFF_DATE}: removed {int(after_cutoff.sum())} matches after this date.")
+    print(f"Dataset date range: {dates.min().date()} to {dates[~after_cutoff].max().date()}")
 
 
