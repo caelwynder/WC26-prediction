@@ -1,4 +1,5 @@
 import time
+import datetime
 import requests
 import pandas as pd
 import sys
@@ -7,7 +8,8 @@ from helper_eloratings_scraper import convert_eloratings_team_codes
 
 
 BASE = "https://www.eloratings.net"
-YEARS = range(2000, 2027)
+CURRENT_YEAR = datetime.date.today().year
+YEARS = range(2000, CURRENT_YEAR + 1)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project-root
 TSV_DIR = BASE_DIR / "data" / "tsv"
@@ -16,7 +18,7 @@ RAW_DIR = BASE_DIR / "data" / "raw"
 TSV_DIR.mkdir(parents=True, exist_ok=True)
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-MERGED_OUT = RAW_DIR / "eloratings_all_matches_2000_2026.csv"
+MERGED_OUT = RAW_DIR / f"eloratings_all_matches_2000_{CURRENT_YEAR}.csv"
 FINAL_OUT = RAW_DIR / "eloratings.csv"
 
 # NOTE: This matches your merge_tsv.py exactly (16 columns)
@@ -43,9 +45,15 @@ def download_yearly_tsvs():
         url = f"{BASE}/{year}_results.tsv"
         out_path = TSV_DIR / f"{year}_results.tsv"
 
+        # A year's TSV is only final if it was downloaded AFTER that year
+        # ended; a file fetched mid-year is missing later matches and must
+        # be re-downloaded to pick up new results.
         if out_path.exists() and out_path.stat().st_size > 0:
-            print(f"Skipping {year} (already downloaded)")
-            continue
+            downloaded_at = datetime.datetime.fromtimestamp(out_path.stat().st_mtime)
+            if downloaded_at.year > year:
+                print(f"Skipping {year} (already downloaded, year complete)")
+                continue
+            print(f"Refreshing {year} (file downloaded mid-year, may be stale)")
 
         print(f"Downloading {year} -> {out_path}")
         resp = session.get(url, timeout=60)

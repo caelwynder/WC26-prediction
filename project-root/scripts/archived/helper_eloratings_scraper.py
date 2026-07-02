@@ -186,7 +186,7 @@ def convert_eloratings_team_codes(
     # Fallback: if still a 2-letter code, try manual overrides
     for col in [home_col, away_col]:
         elo[col] = elo[col].astype(str).str.strip()
-        elo[col] = elo[col].apply(lambda x: MANUAL_OVERRIDES.get(x.upper(), x))
+        elo[col] = elo[col].apply(lambda x: MANUAL_OVERRIDES.get(x.upper(), x) if isinstance(x, str) else x)
 
 
     # Report unmapped 2-letter codes still present
