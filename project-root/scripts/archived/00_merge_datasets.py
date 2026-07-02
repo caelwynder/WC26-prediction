@@ -95,12 +95,23 @@ def combine_and_report(elo_path: str | Path, res_path: str | Path, out_path: str
     elo_direct["_k_ag"] = elo_direct[res_ag]
     elo_direct["_swapped"] = False
 
-    elo_swapped = elo.copy()
+    # For the swapped orientation, flip EVERY home_*/away_* column (teams,
+    # goals, elo, rank, rating/rank changes) — not just the join keys —
+    # otherwise a swapped match attaches the home team's elo/rank data to
+    # the away team and vice versa.
+    swap_map = {}
+    for col in elo.columns:
+        if col.startswith("home_"):
+            swap_map[col] = "away_" + col[len("home_"):]
+        elif col.startswith("away_"):
+            swap_map[col] = "home_" + col[len("away_"):]
+
+    elo_swapped = elo.rename(columns=swap_map)
     elo_swapped["_k_date"] = elo_swapped[KEY_DATE]
-    elo_swapped["_k_home"] = elo_swapped[KEY_AWAY]
-    elo_swapped["_k_away"] = elo_swapped[KEY_HOME]
-    elo_swapped["_k_hg"] = elo_swapped[res_ag]
-    elo_swapped["_k_ag"] = elo_swapped[res_hg]
+    elo_swapped["_k_home"] = elo_swapped[KEY_HOME]
+    elo_swapped["_k_away"] = elo_swapped[KEY_AWAY]
+    elo_swapped["_k_hg"] = elo_swapped[res_hg]
+    elo_swapped["_k_ag"] = elo_swapped[res_ag]
     elo_swapped["_swapped"] = True
 
     elo_keys = pd.concat([elo_direct, elo_swapped], ignore_index=True)
