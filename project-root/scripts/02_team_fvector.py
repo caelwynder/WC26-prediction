@@ -295,97 +295,12 @@ OUT_DIR_INDIVIDUAL = DATA_DIR / "feature_vectors" / "individual_matches"
 # -------------------------------------------------------------------
 # Settings
 # -------------------------------------------------------------------
-FORM_WINDOW = 5
+from features import FEATURE_COLS, FORM_WINDOW, get_tournament_weight
 
-TOURNAMENT_WEIGHTS = {
-    "FIFA World Cup": 1.00,
-    "Confederations Cup": 0.85,
-    "UEFA Euro": 0.90,
-    "Copa América": 0.90,
-    "African Cup of Nations": 0.85,
-    "AFC Asian Cup": 0.85,
-    "CONCACAF Gold Cup": 0.80,
-    "Oceania Nations Cup": 0.75,
-    "FIFA World Cup qualification": 0.80,
-    "UEFA Euro qualification": 0.75,
-    "African Cup of Nations qualification": 0.70,
-    "AFC Asian Cup qualification": 0.70,
-    "CONCACAF Nations League": 0.65,
-    "UEFA Nations League": 0.70,
-    "Friendly": 0.30,
-}
-
-FEATURE_COLS = [
-    "neutral",
-    "home_elo_before",
-    "away_elo_before",
-    "home_rank_before",
-    "away_rank_before",
-    "elo_diff_before",
-    "rank_diff_before",
-    "tournament_weight",
-    "home_matches_played_pre",
-    "away_matches_played_pre",
-    "home_form_points_avg_5",
-    "away_form_points_avg_5",
-    "home_form_points_sum_5",
-    "away_form_points_sum_5",
-    "home_gd_avg_5",
-    "away_gd_avg_5",
-    "home_gd_sum_5",
-    "away_gd_sum_5",
-    "home_gf_avg_5",
-    "away_gf_avg_5",
-    "home_ga_avg_5",
-    "away_ga_avg_5",
-    "home_win_rate_5",
-    "away_win_rate_5",
-    "home_last_match_gd",
-    "away_last_match_gd",
-    "home_last_match_points",
-    "away_last_match_points",
-    "home_days_since_last",
-    "away_days_since_last",
-    "form_points_avg_diff_5",
-    "form_points_sum_diff_5",
-    "gd_avg_diff_5",
-    "gd_sum_diff_5",
-    "gf_avg_diff_5",
-    "ga_avg_diff_5",
-    "win_rate_diff_5",
-    "days_rest_diff",
-]
 
 # -------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------
-def get_tournament_weight(name: str) -> float:
-    if pd.isna(name):
-        return 0.50
-
-    name = str(name).strip()
-
-    if name in TOURNAMENT_WEIGHTS:
-        return TOURNAMENT_WEIGHTS[name]
-
-    lower = name.lower()
-
-    if "world cup" in lower and "qualification" in lower:
-        return 0.80
-    if "world cup" in lower:
-        return 1.00
-    if "qualification" in lower:
-        return 0.70
-    if "friendly" in lower:
-        return 0.30
-    if "nations league" in lower:
-        return 0.65
-    if "cup" in lower:
-        return 0.75
-
-    return 0.50
-
-
 def safe_mean(values):
     return float(np.mean(values)) if len(values) > 0 else np.nan
 

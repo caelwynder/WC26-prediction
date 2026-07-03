@@ -19,46 +19,7 @@ XGB_MODEL_PATH = MODEL_DIR / "xgb_outcome_model.joblib"
 OUT_FILE = PRED_DIR / "03_all_upcoming_match_predictions.csv"
 
 
-FEATURE_COLS = [
-    "neutral",
-    "home_elo_before",
-    "away_elo_before",
-    "home_rank_before",
-    "away_rank_before",
-    "elo_diff_before",
-    "rank_diff_before",
-    "tournament_weight",
-    "home_matches_played_pre",
-    "away_matches_played_pre",
-    "home_form_points_avg_5",
-    "away_form_points_avg_5",
-    "home_form_points_sum_5",
-    "away_form_points_sum_5",
-    "home_gd_avg_5",
-    "away_gd_avg_5",
-    "home_gd_sum_5",
-    "away_gd_sum_5",
-    "home_gf_avg_5",
-    "away_gf_avg_5",
-    "home_ga_avg_5",
-    "away_ga_avg_5",
-    "home_win_rate_5",
-    "away_win_rate_5",
-    "home_last_match_gd",
-    "away_last_match_gd",
-    "home_last_match_points",
-    "away_last_match_points",
-    "home_days_since_last",
-    "away_days_since_last",
-    "form_points_avg_diff_5",
-    "form_points_sum_diff_5",
-    "gd_avg_diff_5",
-    "gd_sum_diff_5",
-    "gf_avg_diff_5",
-    "ga_avg_diff_5",
-    "win_rate_diff_5",
-    "days_rest_diff",
-]
+from features import FEATURE_COLS
 
 OUTCOME_LABELS = {
     "H": "Home Win",
