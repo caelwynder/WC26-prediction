@@ -1,7 +1,9 @@
+import numpy as np
 import pandas as pd
 from pathlib import Path
 import joblib
 
+from scipy.optimize import minimize_scalar
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss
 
@@ -25,47 +27,11 @@ XGB_MODEL_PATH = MODEL_DIR / "xgb_outcome_model.joblib"
 # Settings
 # -------------------------------------------------------------------
 SPLIT_DATE = "2021-06-01"
+# Temperature scaling: fitted on [SPLIT_DATE, CALIB_END), so calibrated
+# metrics reported on [CALIB_END, ...) are honest out-of-sample numbers.
+CALIB_END = "2024-01-01"
 
-FEATURE_COLS = [
-    "neutral",
-    "home_elo_before",
-    "away_elo_before",
-    "home_rank_before",
-    "away_rank_before",
-    "elo_diff_before",
-    "rank_diff_before",
-    "tournament_weight",
-    "home_matches_played_pre",
-    "away_matches_played_pre",
-    "home_form_points_avg_5",
-    "away_form_points_avg_5",
-    "home_form_points_sum_5",
-    "away_form_points_sum_5",
-    "home_gd_avg_5",
-    "away_gd_avg_5",
-    "home_gd_sum_5",
-    "away_gd_sum_5",
-    "home_gf_avg_5",
-    "away_gf_avg_5",
-    "home_ga_avg_5",
-    "away_ga_avg_5",
-    "home_win_rate_5",
-    "away_win_rate_5",
-    "home_last_match_gd",
-    "away_last_match_gd",
-    "home_last_match_points",
-    "away_last_match_points",
-    "home_days_since_last",
-    "away_days_since_last",
-    "form_points_avg_diff_5",
-    "form_points_sum_diff_5",
-    "gd_avg_diff_5",
-    "gd_sum_diff_5",
-    "gf_avg_diff_5",
-    "ga_avg_diff_5",
-    "win_rate_diff_5",
-    "days_rest_diff",
-]
+from features import FEATURE_COLS
 
 TARGET_COL = "match_outcome"
 LABEL_MAP = {"H": 0, "D": 1, "A": 2}
@@ -182,20 +148,39 @@ def evaluate_xgb_model(model: XGBClassifier, X_test: pd.DataFrame, y_test: pd.Se
 
 
 # -------------------------------------------------------------------
+# Temperature scaling (post-hoc calibration)
+# -------------------------------------------------------------------
+def softmax(margins: np.ndarray) -> np.ndarray:
+    e = np.exp(margins - margins.max(axis=1, keepdims=True))
+    return e / e.sum(axis=1, keepdims=True)
+
+
+def fit_temperature(xgb_model: XGBClassifier, X_val: pd.DataFrame, y_val_num: pd.Series) -> float:
+    margins = xgb_model.predict(X_val, output_margin=True)
+    res = minimize_scalar(
+        lambda T: log_loss(y_val_num, softmax(margins / T), labels=[0, 1, 2]),
+        bounds=(0.3, 5.0), method="bounded",
+    )
+    return float(res.x)
+
+
+# -------------------------------------------------------------------
 # Save models
 # -------------------------------------------------------------------
-def save_models(rf_model: RandomForestClassifier, xgb_model: XGBClassifier):
+def save_models(rf_model: RandomForestClassifier, xgb_model: XGBClassifier, temperature: float):
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    joblib.dump(rf_model, RF_MODEL_PATH)
+    joblib.dump(rf_model, RF_MODEL_PATH, compress=3)
     joblib.dump(
         {
             "model": xgb_model,
             "label_map": LABEL_MAP,
             "inverse_label_map": INV_LABEL_MAP,
             "feature_cols": FEATURE_COLS,
+            "temperature": temperature,
         },
         XGB_MODEL_PATH,
+        compress=3,
     )
 
 
@@ -219,7 +204,17 @@ def main():
     rf_acc, rf_ll = evaluate_rf_model(rf_model, X_test, y_test)
     xgb_acc, xgb_ll = evaluate_xgb_model(xgb_model, X_test, y_test)
 
-    save_models(rf_model, xgb_model)
+    # calibrate on [SPLIT_DATE, CALIB_END), report calibrated log loss on [CALIB_END, ...)
+    calib_mask = test_df["date"] < pd.Timestamp(CALIB_END)
+    temperature = fit_temperature(xgb_model, X_test[calib_mask.values], y_test[calib_mask.values].map(LABEL_MAP))
+
+    holdout_mask = ~calib_mask.values
+    y_holdout = y_test[holdout_mask].map(LABEL_MAP)
+    margins = xgb_model.predict(X_test[holdout_mask], output_margin=True)
+    ll_uncal = log_loss(y_holdout, softmax(margins), labels=[0, 1, 2])
+    ll_cal = log_loss(y_holdout, softmax(margins / temperature), labels=[0, 1, 2])
+
+    save_models(rf_model, xgb_model, temperature)
 
     print("Random Forest Results")
     print(f"Accuracy: {rf_acc:.5f}")
@@ -229,6 +224,8 @@ def main():
     print("XGBoost Results")
     print(f"Accuracy: {xgb_acc:.5f}")
     print(f"Log Loss: {xgb_ll:.5f}")
+    print(f"Temperature (fitted {SPLIT_DATE}..{CALIB_END}): {temperature:.3f}")
+    print(f"Post-{CALIB_END} log loss: {ll_uncal:.5f} uncalibrated -> {ll_cal:.5f} calibrated")
     print()
 
     print(f"Saved Random Forest model to: {RF_MODEL_PATH}")
