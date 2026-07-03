@@ -26,27 +26,9 @@ MISSING_VALUE = np.nan
 FORM_WINDOW = 5
 
 
-# -------------------------------------------------------------------
-# Tournament weighting
-# Adjust this dictionary however you want later
-# -------------------------------------------------------------------
-TOURNAMENT_WEIGHTS = {
-    "FIFA World Cup": 1.00,
-    "Confederations Cup": 0.85,
-    "UEFA Euro": 0.90,
-    "Copa América": 0.90,
-    "African Cup of Nations": 0.85,
-    "AFC Asian Cup": 0.85,
-    "CONCACAF Gold Cup": 0.80,
-    "Oceania Nations Cup": 0.75,
-    "FIFA World Cup qualification": 0.80,
-    "UEFA Euro qualification": 0.75,
-    "African Cup of Nations qualification": 0.70,
-    "AFC Asian Cup qualification": 0.70,
-    "CONCACAF Nations League": 0.65,
-    "UEFA Nations League": 0.70,
-    "Friendly": 0.30,
-}
+# Tournament weighting lives in features.py (shared across the pipeline)
+from features import get_tournament_weight
+
 
 def save_in_chunks(df, out_file, chunk_size=100000):
     """
@@ -58,33 +40,6 @@ def save_in_chunks(df, out_file, chunk_size=100000):
         chunk = df[i * chunk_size: (i + 1) * chunk_size]
         chunk.to_csv(out_file, mode='a', header=(i == 0), index=False)
     print(f"✅ Finished saving dataset to {out_file}")
-
-def get_tournament_weight(name: str) -> float:
-    if pd.isna(name):
-        return 0.50
-
-    name = str(name).strip()
-
-    if name in TOURNAMENT_WEIGHTS:
-        return TOURNAMENT_WEIGHTS[name]
-
-    lower = name.lower()
-
-    if "world cup" in lower and "qualification" in lower:
-        return 0.80
-    if "world cup" in lower:
-        return 1.00
-    if "qualification" in lower:
-        return 0.70
-    if "friendly" in lower:
-        return 0.30
-    if "nations league" in lower:
-        return 0.65
-    if "cup" in lower:
-        return 0.75
-
-    return 0.50
-
 
 # -------------------------------------------------------------------
 # Helpers
@@ -122,6 +77,8 @@ def build_team_snapshot(history, team):
         "last_match_gd": safe_last(gd),
         "last_match_points": safe_last(points),
         "days_since_last": MISSING_VALUE,
+        "elo_before": h["last_elo"] if h["last_elo"] is not None else MISSING_VALUE,
+        "rank_before": h["last_rank"] if h["last_rank"] is not None else MISSING_VALUE,
     }
 
     if h["last_date"] is not None:
@@ -189,23 +146,14 @@ def build_model_dataset():
     )
 
     # ---------------------------------------------------------------
-    # Pre-match Elo / rank
-    # ---------------------------------------------------------------
-    df["home_elo_before"] = df["home_elo"] - df["home_rating_change"]
-    df["away_elo_before"] = df["away_elo"] - df["away_rating_change"]
-
-    df["home_rank_before"] = df["home_rank"] - df["home_rank_change"]
-    df["away_rank_before"] = df["away_rank"] - df["away_rank_change"]
-
-    # Optional: make impossible / missing originals become missing
-    for col in ["home_elo_before", "away_elo_before", "home_rank_before", "away_rank_before"]:
-        df.loc[~np.isfinite(df[col]), col] = MISSING_VALUE
-
-    # ---------------------------------------------------------------
     # Basic engineered features
     # ---------------------------------------------------------------
-    df["elo_diff_before"] = df["home_elo_before"] - df["away_elo_before"]
-    df["rank_diff_before"] = df["away_rank_before"] - df["home_rank_before"]  # positive favors home if away rank is worse
+    # NOTE: pre-match Elo/rank (home_elo_before etc.) are computed inside the
+    # rolling history loop below by carrying each team's PREVIOUS match's
+    # post-match Elo/rank. Do NOT derive them by subtracting the recorded
+    # rating/rank "change" columns: the eloratings rank_change is
+    # result-asymmetric (zero on ~93% of losses, nonzero on ~71% of wins),
+    # so rank - rank_change leaks the match result into a pre-match feature.
     df["score_diff"] = df["home_score"] - df["away_score"]
     df["total_goals"] = df["home_score"] + df["away_score"]
     df["tournament_weight"] = df["tournament"].apply(get_tournament_weight)
@@ -228,6 +176,8 @@ def build_model_dataset():
         "wins": deque(maxlen=FORM_WINDOW),
         "matches_played": 0,
         "last_date": None,
+        "last_elo": None,
+        "last_rank": None,
     })
 
     feature_rows = []
@@ -243,6 +193,12 @@ def build_model_dataset():
         away_snapshot = build_team_snapshot(history, away)
 
         feature_rows.append({
+            "home_elo_before": home_snapshot["elo_before"],
+            "away_elo_before": away_snapshot["elo_before"],
+
+            "home_rank_before": home_snapshot["rank_before"],
+            "away_rank_before": away_snapshot["rank_before"],
+
             "home_matches_played_pre": home_snapshot["matches_played_pre"],
             "away_matches_played_pre": away_snapshot["matches_played_pre"],
 
@@ -291,6 +247,10 @@ def build_model_dataset():
         history[home]["wins"].append(1 if home_points == 3 else 0)
         history[home]["matches_played"] += 1
         history[home]["last_date"] = row["date"]
+        if pd.notna(row["home_elo"]):
+            history[home]["last_elo"] = float(row["home_elo"])
+        if pd.notna(row["home_rank"]):
+            history[home]["last_rank"] = float(row["home_rank"])
 
         history[away]["points"].append(away_points)
         history[away]["gd"].append(away_gd)
@@ -299,6 +259,10 @@ def build_model_dataset():
         history[away]["wins"].append(1 if away_points == 3 else 0)
         history[away]["matches_played"] += 1
         history[away]["last_date"] = row["date"]
+        if pd.notna(row["away_elo"]):
+            history[away]["last_elo"] = float(row["away_elo"])
+        if pd.notna(row["away_rank"]):
+            history[away]["last_rank"] = float(row["away_rank"])
 
     feature_df = pd.DataFrame(feature_rows)
     df = pd.concat([df, feature_df], axis=1)
@@ -306,6 +270,8 @@ def build_model_dataset():
     # ---------------------------------------------------------------
     # Difference features (usually useful for tree models)
     # ---------------------------------------------------------------
+    df["elo_diff_before"] = df["home_elo_before"] - df["away_elo_before"]
+    df["rank_diff_before"] = df["away_rank_before"] - df["home_rank_before"]  # positive favors home if away rank is worse
     df["form_points_avg_diff_5"] = df["home_form_points_avg_5"] - df["away_form_points_avg_5"]
     df["form_points_sum_diff_5"] = df["home_form_points_sum_5"] - df["away_form_points_sum_5"]
     df["gd_avg_diff_5"] = df["home_gd_avg_5"] - df["away_gd_avg_5"]
@@ -315,7 +281,7 @@ def build_model_dataset():
     df["win_rate_diff_5"] = df["home_win_rate_5"] - df["away_win_rate_5"]
     df["days_rest_diff"] = df["home_days_since_last"] - df["away_days_since_last"]
 
-    df = df.applymap(lambda x: round(x, 3) if isinstance(x, (int, float)) else x)
+    df = df.map(lambda x: round(x, 3) if isinstance(x, (int, float)) else x)
 
     # ---------------------------------------------------------------
     # Replace NaN with sentinel if you prefer
