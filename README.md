@@ -5,12 +5,6 @@
   leakage-free form features, and predicts every knockout match of the 2026 World Cup.</em>
 </p>
 
-<p align="center">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?logo=python&logoColor=white">
-  <img alt="XGBoost" src="https://img.shields.io/badge/XGBoost-3.2-EA4E1B">
-  <img alt="scikit-learn" src="https://img.shields.io/badge/scikit--learn-1.8-F7931E?logo=scikitlearn&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-10%20passing-4c9a2a">
-</p>
 
 <p align="center">
   <img src="docs/website.png" alt="The predicted bracket, trophy odds leaderboard, and head-to-head simulator" width="820">
